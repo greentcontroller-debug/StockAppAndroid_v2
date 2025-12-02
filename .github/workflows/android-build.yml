@@ -29,7 +29,387 @@ jobs:
       run: chmod +x ./gradlew
 
     - name: Build APK
-      run: ./gradlew assembleDebug
+      run: ./gradlew assembleDebugrootProject.name = 'StockAppAndroid_v2'
+include ':app'// Top-level build file where you can add configuration options common to all sub-projects/modules.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.0.2"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}org.gradle.jvmargs=-Xmx1536mapply plugin: 'com.android.application'
+
+android {
+    namespace 'com.example.stockapp'
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.example.stockapp"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    buildFeatures { viewBinding true }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.google.code.gson:gson:2.10.1'
+}
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="com.example.stockapp"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <application android:allowBackup="true" android:label="StockApp">
+        <activity android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
+package com.example.stockapp;
+
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Bundle;
+import android.os.Environment;
+import android.view.View;
+import android.widget.Toast;
+import com.example.stockapp.databinding.ActivityMainBinding;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.FileReader;
+import java.io.BufferedReader;
+import java.util.ArrayList;
+
+public class MainActivity extends AppCompatActivity {
+    ActivityMainBinding binding;
+    ArrayList<Product> products = new ArrayList<>();
+    String PIN = "1234"; // default PIN, puedes cambiarlo aquí
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
+
+        // Pedir permisos de almacenamiento para export/backup
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE}, 1);
+        }
+
+        binding.btnLogin.setOnClickListener(v -> {
+            String pin = binding.txtPin.getText().toString();
+            if(pin.equals(PIN)){
+                binding.loginLayout.setVisibility(View.GONE);
+                binding.appLayout.setVisibility(View.VISIBLE);
+                loadProductsFromFile();
+                refreshList();
+            } else {
+                Toast.makeText(this, "PIN incorrecto", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        binding.btnAdd.setOnClickListener(v -> {
+            try {
+                String name = binding.txtName.getText().toString();
+                String category = binding.txtCat.getText().toString();
+                String provider = binding.txtProvider.getText().toString();
+                int stock = Integer.parseInt(binding.txtStock.getText().toString());
+                int minStock = Integer.parseInt(binding.txtMinStock.getText().toString());
+                double price = Double.parseDouble(binding.txtPrice.getText().toString());
+                Product p = new Product(name, category, provider, price, stock, minStock);
+                products.add(p);
+                saveProductsToFile();
+                refreshList();
+            } catch (Exception e) {
+                Toast.makeText(this, "Complete todos los campos correctamente", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        binding.btnExportCsv.setOnClickListener(v -> {
+            try {
+                exportCsv();
+                Toast.makeText(this, "Exportado CSV a Descargas", Toast.LENGTH_LONG).show();
+            } catch (Exception e){
+                Toast.makeText(this, "Error exportando: "+e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+
+        binding.btnBackup.setOnClickListener(v -> {
+            try {
+                backupJson();
+                Toast.makeText(this, "Backup creado en Descargas", Toast.LENGTH_LONG).show();
+            } catch (Exception e){
+                Toast.makeText(this, "Error backup: "+e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+
+        binding.btnRestore.setOnClickListener(v -> {
+            try {
+                restoreJson();
+                refreshList();
+                Toast.makeText(this, "Restore completado", Toast.LENGTH_LONG).show();
+            } catch (Exception e){
+                Toast.makeText(this, "Error restore: "+e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+
+    }
+
+    void refreshList(){
+        StringBuilder sb = new StringBuilder();
+        sb.append("Nombre | Categoria | Proveedor | Precio | Stock | Min\n");
+        for(Product p: products){
+            sb.append(p.name).append(" | ").append(p.category).append(" | ").append(p.provider)
+              .append(" | ").append(p.price).append(" | ").append(p.stock).append(" | ").append(p.minStock);
+            if(p.stock <= p.minStock){
+                sb.append("  <<< BAJO STOCK");
+            }
+            sb.append("\n");
+        }
+        binding.txtList.setText(sb.toString());
+    }
+
+    void exportCsv() throws Exception {
+        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File f = new File(dir, "stock_export.csv");
+        FileWriter fw = new FileWriter(f);
+        fw.write("Nombre, Categoria, Proveedor, Precio, Stock, MinStock\n");
+        for(Product p: products){
+            fw.write(String.format("%s,%s,%s,%.2f,%d,%d\n", p.name, p.category, p.provider, p.price, p.stock, p.minStock));
+        }
+        fw.close();
+    }
+
+    void backupJson() throws Exception {
+        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File f = new File(dir, "stock_backup.json");
+        JSONArray arr = new JSONArray();
+        for(Product p: products){
+            JSONObject o = new JSONObject();
+            o.put("name", p.name);
+            o.put("category", p.category);
+            o.put("provider", p.provider);
+            o.put("price", p.price);
+            o.put("stock", p.stock);
+            o.put("minStock", p.minStock);
+            arr.put(o);
+        }
+        FileWriter fw = new FileWriter(f);
+        fw.write(arr.toString(2));
+        fw.close();
+    }
+
+    void restoreJson() throws Exception {
+        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File f = new File(dir, "stock_backup.json");
+        if(!f.exists()) throw new Exception("No se encontró stock_backup.json en Descargas");
+        BufferedReader br = new BufferedReader(new FileReader(f));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while((line=br.readLine())!=null) sb.append(line);
+        br.close();
+        JSONArray arr = new JSONArray(sb.toString());
+        products.clear();
+        for(int i=0;i<arr.length();i++){
+            JSONObject o = arr.getJSONObject(i);
+            Product p = new Product(o.getString("name"), o.getString("category"), o.getString("provider"),
+                    o.getDouble("price"), o.getInt("stock"), o.getInt("minStock"));
+            products.add(p);
+        }
+        saveProductsToFile();
+    }
+
+    void saveProductsToFile(){
+        try {
+            File f = new File(getFilesDir(), "products.json");
+            JSONArray arr = new JSONArray();
+            for(Product p: products){
+                JSONObject o = new JSONObject();
+                o.put("name", p.name);
+                o.put("category", p.category);
+                o.put("provider", p.provider);
+                o.put("price", p.price);
+                o.put("stock", p.stock);
+                o.put("minStock", p.minStock);
+                arr.put(o);
+            }
+            FileWriter fw = new FileWriter(f);
+            fw.write(arr.toString(2));
+            fw.close();
+        } catch (Exception e){}
+    }
+
+    void loadProductsFromFile(){
+        try {
+            File f = new File(getFilesDir(), "products.json");
+            if(!f.exists()) return;
+            BufferedReader br = new BufferedReader(new FileReader(f));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while((line=br.readLine())!=null) sb.append(line);
+            br.close();
+            JSONArray arr = new JSONArray(sb.toString());
+            products.clear();
+            for(int i=0;i<arr.length();i++){
+                JSONObject o = arr.getJSONObject(i);
+                Product p = new Product(o.getString("name"), o.getString("category"), o.getString("provider"),
+                        o.getDouble("price"), o.getInt("stock"), o.getInt("minStock"));
+                products.add(p);
+            }
+        } catch (Exception e){}
+    }
+}package com.example.stockapp;
+
+public class Product {
+    public String name;
+    public String category;
+    public String provider;
+    public double price;
+    public int stock;
+    public int minStock;
+
+    public Product(String name, String category, String provider, double price, int stock, int minStock){
+        this.name = name;
+        this.category = category;
+        this.provider = provider;
+        this.price = price;
+        this.stock = stock;
+        this.minStock = minStock;
+    }
+}
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+<LinearLayout
+    android:layout_width="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:id="@+id/loginLayout"
+        android:layout_width="match_parent"
+        android:orientation="vertical"
+        android:layout_height="wrap_content">
+        <TextView android:text="Ingrese PIN" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/txtPin" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="numberPassword"/>
+        <Button android:id="@+id/btnLogin" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Entrar"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/appLayout"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:orientation="vertical"
+        android:layout_height="wrap_content">
+
+        <TextView android:text="Agregar material" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textStyle="bold"/>
+
+        <EditText android:id="@+id/txtName" android:hint="Nombre" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/txtCat" android:hint="Categoria" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/txtProvider" android:hint="Proveedor" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/txtPrice" android:hint="Precio" android:inputType="numberDecimal" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/txtStock" android:hint="Stock" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/txtMinStock" android:hint="Stock minimo (alerta)" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+        <Button android:id="@+id/btnAdd" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Agregar"/>
+        <Button android:id="@+id/btnExportCsv" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Exportar CSV"/>
+        <Button android:id="@+id/btnBackup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Crear Backup (JSON)"/>
+        <Button android:id="@+id/btnRestore" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Restaurar desde Backup"/>
+        <TextView android:id="@+id/txtList" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="8dp"/>
+
+    </LinearLayout>
+
+</LinearLayout>
+</ScrollView>
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">StockApp</string>
+</resources>
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+    </style>
+</resources>
+name: Build Android APK (no wrapper required)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Cache Gradle packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Use Gradle build action (will install Gradle automatically)
+      uses: gradle/gradle-build-action@v2
+      with:
+        arguments: assembleDebug
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: StockApp-APK
+        path: app/build/outputs/apk/debug/*.apk
+
+
+
+
+
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
